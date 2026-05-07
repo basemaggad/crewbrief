@@ -1,0 +1,113 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&family=Bebas+Neue&display=swap');
+
+:root {
+  /* Core palette — inspired by cockpit EFIS displays */
+  --bg:          #080c10;
+  --bg-2:        #0d1319;
+  --bg-3:        #121920;
+  --surface:     #151d26;
+  --surface-2:   #1c2734;
+  --border:      #1e2d3d;
+  --border-2:    #253545;
+
+  /* Text */
+  --text:        #d4dde8;
+  --text-2:      #8899aa;
+  --text-dim:    #4a5a6a;
+
+  /* Accents — amber primary, teal secondary */
+  --amber:       #e8a234;
+  --amber-dim:   #7a4d10;
+  --teal:        #2dcfaa;
+  --teal-dim:    #0d5a49;
+  --red:         #e85c5c;
+  --red-dim:     #5a1a1a;
+  --blue:        #4a9eff;
+  --blue-dim:    #0d2a4a;
+
+  /* Functional */
+  --radius:      4px;
+  --radius-lg:   8px;
+
+  /* Fonts */
+  --font-mono:   'IBM Plex Mono', 'Fira Code', monospace;
+  --font-sans:   'IBM Plex Sans', system-ui, sans-serif;
+  --font-display: 'Bebas Neue', sans-serif;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg-2); }
+::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* Selection */
+::selection { background: var(--amber-dim); color: var(--amber); }
+
+/* Utility classes */
+.mono { font-family: var(--font-mono); }
+.text-amber { color: var(--amber); }
+.text-teal { color: var(--teal); }
+.text-dim { color: var(--text-dim); }
+.text-2 { color: var(--text-2); }
+
+/* Fade-in animation */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.fade-up {
+  animation: fadeUp 0.3s ease forwards;
+}
+
+/* Scan-line overlay for atmosphere */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
