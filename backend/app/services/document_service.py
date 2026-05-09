@@ -135,7 +135,7 @@ def delete_document(doc_id: str, organization_id: str) -> None:
     if chunk_ids:
         # Find sessions whose messages cite these chunks
         # session_invalidations table records (session_id, document_name, revision, message)
-        msgs = supabase.table("messages").select("session_id, citations").execute()
+        msgs = supabase.table("session_messages").select("session_id, citations").execute()
         affected_sessions = set()
         for m in (msgs.data or []):
             cits = m.get("citations") or []

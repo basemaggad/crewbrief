@@ -31,7 +31,7 @@ def ask(payload: QueryRequest, user: CurrentUser = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Session not found")
 
     # Save user message
-    supabase.table("messages").insert({
+    supabase.table("session_messages").insert({
         "session_id": payload.session_id,
         "role": "user",
         "content": payload.question,
@@ -44,7 +44,7 @@ def ask(payload: QueryRequest, user: CurrentUser = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Query failed: {e}")
 
     # Save assistant message with citations
-    supabase.table("messages").insert({
+    supabase.table("session_messages").insert({
         "session_id": payload.session_id,
         "role": "assistant",
         "content": result["answer"],

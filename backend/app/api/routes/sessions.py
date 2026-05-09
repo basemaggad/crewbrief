@@ -19,7 +19,7 @@ def list_sessions(user: CurrentUser = Depends(get_current_user)):
     supabase = get_supabase_admin()
     res = supabase.table("sessions").select(
         "id, title, created_at, updated_at"
-    ).eq("user_id", user.user_id).order("updated_at", desc=True).execute()
+    ).eq("user_id", user.user_id).order("created_at", desc=True).execute()
     return res.data or []
 
 
@@ -44,7 +44,7 @@ def get_session(session_id: str, user: CurrentUser = Depends(get_current_user)):
     if not sess.data:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    msgs = supabase.table("messages").select(
+    msgs = supabase.table("session_messages").select(
         "id, role, content, citations, created_at"
     ).eq("session_id", session_id).order("created_at").execute()
 
@@ -66,7 +66,7 @@ def delete_session(session_id: str, user: CurrentUser = Depends(get_current_user
     sess = supabase.table("sessions").select("id").eq("id", session_id).eq("user_id", user.user_id).execute()
     if not sess.data:
         raise HTTPException(status_code=404, detail="Session not found")
-    supabase.table("messages").delete().eq("session_id", session_id).execute()
+    supabase.table("session_messages").delete().eq("session_id", session_id).execute()
     supabase.table("session_invalidations").delete().eq("session_id", session_id).execute()
     supabase.table("sessions").delete().eq("id", session_id).execute()
     return {"deleted": True, "id": session_id}
