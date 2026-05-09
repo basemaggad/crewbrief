@@ -1,52 +1,72 @@
-from pydantic import BaseModel
-from typing import Optional
-from uuid import UUID
+"""
+Pydantic schemas for request and response bodies.
+These define the shapes of data that flow between frontend and backend.
+"""
+from typing import Optional, List
 from datetime import datetime
+from pydantic import BaseModel
 
-# --- Document Models ---
 
-class DocumentUploadResponse(BaseModel):
-    document_id: UUID
-    version_id: UUID
-    message: str
-
+# ── Documents ────────────────────────────────────────────────────────────────
 class DocumentOut(BaseModel):
-    id: UUID
-    title: str
-    doc_type: str
-    aircraft_type: Optional[str]
-    is_active: bool
-    created_at: datetime
+    id: str
+    name: str
+    filename: Optional[str] = None
+    document_type: Optional[str] = None
+    aircraft_type: Optional[str] = None
+    revision: Optional[str] = None
+    status: str = "pending"
+    chunk_count: Optional[int] = None
+    created_at: Optional[datetime] = None
 
-# --- Query Models ---
 
-class QueryRequest(BaseModel):
-    session_id: Optional[UUID] = None
-    query: str
-    document_ids: Optional[list[UUID]] = None
+# ── Sessions ─────────────────────────────────────────────────────────────────
+class SessionCreate(BaseModel):
+    title: Optional[str] = "New briefing"
 
-class CitationOut(BaseModel):
-    document_title: str
-    section_title: Optional[str]
-    page_start: Optional[int]
-    page_end: Optional[int]
-
-class QueryResponse(BaseModel):
-    session_id: UUID
-    message_id: UUID
-    answer: str
-    citations: list[CitationOut]
-    has_unresolved: bool
-
-# --- Session Models ---
 
 class SessionOut(BaseModel):
-    id: UUID
-    title: Optional[str]
-    created_at: datetime
+    id: str
+    title: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
 
 class MessageOut(BaseModel):
-    id: UUID
-    role: str
+    id: str
+    role: str  # "user" | "assistant"
     content: str
-    created_at: datetime
+    citations: Optional[List[dict]] = None
+    created_at: Optional[datetime] = None
+
+
+class InvalidationOut(BaseModel):
+    document_name: str
+    revision: Optional[str] = None
+    section: Optional[str] = None
+    message: Optional[str] = None
+
+
+class SessionDetail(BaseModel):
+    session: SessionOut
+    messages: List[MessageOut]
+    invalidations: List[InvalidationOut] = []
+
+
+# ── Query ────────────────────────────────────────────────────────────────────
+class QueryRequest(BaseModel):
+    session_id: str
+    question: str
+
+
+class Citation(BaseModel):
+    document_name: str
+    section: Optional[str] = None
+    revision: Optional[str] = None
+    excerpt: Optional[str] = None
+    chunk_id: Optional[str] = None
+
+
+class QueryResponse(BaseModel):
+    answer: str
+    citations: List[Citation] = []

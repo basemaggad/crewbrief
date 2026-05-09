@@ -1,85 +1,59 @@
-import uuid
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-from app.db.client import supabase_admin
-from app.services.ingestion import ingest_document
-from app.models.schemas import DocumentUploadResponse, DocumentOut
+"""
+Documents endpoints:
+- GET    /documents         list documents for the user's org
+- POST   /documents/upload  upload a PDF, kicks off ingestion
+- DELETE /documents/{id}    remove a document and mark sessions invalidated
+"""
+from typing import List
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+
+from app.core.auth import get_current_user, CurrentUser
+from app.db.supabase_client import get_supabase_admin
+from app.services.document_service import ingest_document, delete_document
 
 router = APIRouter()
 
-@router.get("/", response_model=list[DocumentOut])
-def list_documents(organization_id: str):
-    """Return all active documents for an organization."""
-    result = supabase_admin.table("documents")\
-        .select("*")\
-        .eq("organization_id", organization_id)\
-        .eq("is_active", True)\
-        .execute()
-    return result.data
 
-@router.post("/upload", response_model=DocumentUploadResponse)
+@router.get("")
+def list_documents(user: CurrentUser = Depends(get_current_user)):
+    supabase = get_supabase_admin()
+    res = supabase.table("documents").select(
+        "id, name, filename, document_type, aircraft_type, revision, status, chunk_count, created_at"
+    ).eq("organization_id", user.organization_id).order("created_at", desc=True).execute()
+    return res.data or []
+
+
+@router.post("/upload")
 async def upload_document(
-    organization_id: str = Form(...),
-    title: str = Form(...),
-    doc_type: str = Form(...),
-    version_label: str = Form(...),
-    aircraft_type: str = Form(None),
     file: UploadFile = File(...),
+    document_type: str = Form(...),
+    revision: str = Form(""),
+    aircraft_type: str = Form(""),
+    user: CurrentUser = Depends(get_current_user),
 ):
-    """
-    Upload a new document or a new version of an existing document.
-    Steps:
-    1. Upload the PDF to Supabase Storage
-    2. Create document and version records in the database
-    3. Trigger the ingestion pipeline to chunk and embed the document
-    """
-    if not file.filename.endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
-    file_bytes = await file.read()
-    document_id = str(uuid.uuid4())
-    version_id = str(uuid.uuid4())
-    storage_path = f"{organization_id}/{document_id}/{version_id}/{file.filename}"
+    contents = await file.read()
+    if len(contents) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File exceeds 50 MB limit")
 
-    # Upload to Supabase Storage
-    supabase_admin.storage.from_("documents").upload(
-        path=storage_path,
-        file=file_bytes,
-        file_options={"content-type": "application/pdf"},
-    )
+    try:
+        document = await ingest_document(
+            file_bytes=contents,
+            filename=file.filename,
+            document_type=document_type,
+            revision=revision,
+            aircraft_type=aircraft_type,
+            organization_id=user.organization_id,
+            uploader_id=user.user_id,
+        )
+        return document
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    # Create document record
-    supabase_admin.table("documents").insert({
-        "id": document_id,
-        "organization_id": organization_id,
-        "title": title,
-        "doc_type": doc_type,
-        "aircraft_type": aircraft_type,
-        "role_access": [],
-    }).execute()
 
-    # Create version record
-    supabase_admin.table("document_versions").insert({
-        "id": version_id,
-        "document_id": document_id,
-        "organization_id": organization_id,
-        "version_label": version_label,
-        "storage_path": storage_path,
-        "file_name": file.filename,
-        "file_size_bytes": len(file_bytes),
-        "is_current": True,
-        "ingestion_status": "pending",
-    }).execute()
-
-    # Run ingestion pipeline
-    ingest_document(
-        organization_id=organization_id,
-        document_id=document_id,
-        version_id=version_id,
-        file_bytes=file_bytes,
-    )
-
-    return DocumentUploadResponse(
-        document_id=document_id,
-        version_id=version_id,
-        message=f"Document ingested successfully.",
-    )
+@router.delete("/{doc_id}")
+def remove_document(doc_id: str, user: CurrentUser = Depends(get_current_user)):
+    delete_document(doc_id, user.organization_id)
+    return {"deleted": True, "id": doc_id}
