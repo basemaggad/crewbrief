@@ -1,43 +1,36 @@
-CrewBrief Session Handoff — May 28, 2026
-What's working
+# CrewBrief Session Handoff — May 28, 2026
 
-Frontend live at crewbrief-six.vercel.app
-Backend live at crewbrief-production.up.railway.app
-/health returns {"status":"ok","service":"crewbrief-api"}
-Supabase connected, tables correct, user exists (basem.aggad@gmail.com)
-JWT auth fixed — ES256 JWKS verification working via PyJWT
-Railway build command conflict resolved — Custom Build Command cleared in dashboard
+### What's working
+- Frontend live at crewbrief-six.vercel.app
+- Backend live at crewbrief-production.up.railway.app
+- `/health` returns `{"status":"ok","service":"crewbrief-api"}`
+- JWT auth working — ES256 JWKS verification via PyJWT
+- CORS fully resolved — all preflights return 200
+- Supabase permissions fixed — service_role granted on all tables
+- Sessions and Documents endpoints both returning 200
+- Full end-to-end request flow working (frontend → backend → Supabase)
 
-What's broken / in progress
+### What's broken / in progress
+- Document upload and ingestion pipeline not yet tested
+- Sessions creation/query flow not yet tested beyond 200 response
+- No documents in the library yet — UI shows empty state
 
-CORS preflight failing — sessions and documents returning 400 on OPTIONS requests
-Backend returns {"detail":"Missing authorization header"} on actual requests
-Root cause not yet confirmed — need to see response headers on the preflight request
+### Next concrete step
+Test the document upload flow — upload a sample PDF via the UI and confirm it appears in the library without error. Watch Railway Deploy Logs for any ingestion errors.
 
-Next concrete step
+### Decisions made this session
+- `allow_credentials=False` — correct for JWT Bearer auth, not cookie auth
+- CORS origins hardcoded in main.py — removes env var indirection risk
+- `GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role` — comprehensive grant, includes ALTER DEFAULT PRIVILEGES so future tables inherit the grant
+- Documents table schema migrated to match code: renamed `title→name`, `doc_type→document_type`; added `filename`, `revision`, `status`, `chunk_count`, `uploader_id`
 
-In browser DevTools → Network tab → click the documents preflight row (type: Preflight, status: 400)
-Click Headers tab → copy the Response Headers section
-Paste here so we can see what CORS headers the backend is returning
-Fix will likely be in main.py CORS config or a middleware ordering issue
+### Dead ends — don't retry
+- CORS was never a Railway infrastructure issue — it was origin mismatch + `allow_credentials=True`
+- The 400 preflights were partly browser cache and partly the wrong Vercel preview URL (crewbrief-git-main-...vercel.app instead of crewbrief-six.vercel.app)
+- `allow_credentials=True` with specific origins caused silent preflight failures in this Starlette version
+- Don't debug CORS from the backend side without curl first — always test the endpoint directly before touching config
 
-Decisions made this session
-
-DocumentsPage.js updated to wait for authLoading before calling API
-STATUS.md created at repo root for cross-session continuity
-Project instructions updated with handoff format and "no guessing" rule
-PyJWT with PyJWKClient confirmed as correct approach for ES256
-
-Dead ends — don't retry
-
-python-jose — does not support ES256, replaced
-Looking for "Copy JWT" on Supabase Auth → Users page — removed from UI
-Railway railway.toml was clean — conflict was in dashboard Settings, not the file
-CORS is not a frontend issue — main.py config and FRONTEND_ORIGIN variable are both correct
-
-Files touched
-
-backend/app/core/auth.py — rewritten for PyJWT JWKS verification
-backend/requirements.txt — switched to PyJWT[crypto]==2.10.0
-frontend/src/pages/DocumentsPage.js — wait for authLoading before API call
-STATUS.md — created at repo root
+### Files touched
+- `backend/app/main.py` — CORS config fixed, debug print removed
+- Supabase `documents` table — schema migrated via SQL Editor
+- Supabase all tables — service_role grants applied
