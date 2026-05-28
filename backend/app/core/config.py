@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # Anthropic
     ANTHROPIC_API_KEY: str
     CLAUDE_MODEL: str = "claude-sonnet-4-20250514"
+    # NOTE: embeddings currently use a deterministic local placeholder
+    # (embedding_service.py), so this value is unused until a real
+    # embedding provider is wired in. Kept for forward-compatibility.
     EMBEDDING_MODEL: str = "claude-3-haiku-20240307"
 
     # CORS
@@ -22,6 +25,7 @@ class Settings(BaseSettings):
 
     # Storage
     STORAGE_BUCKET: str = "documents"
+    MAX_UPLOAD_MB: int = 500         # per-file PDF upload limit
 
     # Chunking
     CHUNK_SIZE: int = 1000           # characters per chunk (target)

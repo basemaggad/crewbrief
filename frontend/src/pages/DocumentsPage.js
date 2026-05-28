@@ -39,6 +39,15 @@ const { loading: authLoading } = useAuth();
   if (!authLoading) loadDocs();
 }, [authLoading]);
 
+  // While anything is still processing in the background, poll for status
+  // changes so the row flips to READY (or ERROR) without a manual refresh.
+  useEffect(() => {
+    const anyProcessing = documents.some(d => d.status === 'processing');
+    if (!anyProcessing) return;
+    const t = setInterval(() => { loadDocs(); }, 4000);
+    return () => clearInterval(t);
+  }, [documents]);
+
   async function loadDocs() {
     setLoading(true);
     try {
@@ -109,6 +118,14 @@ const { loading: authLoading } = useAuth();
     pending:    'var(--text-dim)',
   };
 
+  // Distinct aircraft types across the library, e.g. "A320, B787 fleet"
+  const fleetLabel = (() => {
+    const types = [...new Set(documents.map(d => d.aircraft_type).filter(Boolean))];
+    if (types.length === 0) return '';
+    if (types.length === 1) return `${types[0]} fleet`;
+    return `${types.join(', ')} fleet`;
+  })();
+
   return (
     <div style={styles.root}>
       {/* Toast */}
@@ -151,7 +168,8 @@ const { loading: authLoading } = useAuth();
           <div>
             <h1 style={styles.pageTitle}>Document Library</h1>
             <p style={styles.pageSubtitle}>
-              {documents.length} document{documents.length !== 1 ? 's' : ''} · A320 fleet
+              {documents.length} document{documents.length !== 1 ? 's' : ''}
+              {fleetLabel ? ` · ${fleetLabel}` : ''}
             </p>
           </div>
         </div>
@@ -230,7 +248,7 @@ const { loading: authLoading } = useAuth();
                     Drop PDF here or click to browse
                   </span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-dim)' }}>
-                    PDF only · Max 50 MB
+                    PDF only · Max 500 MB
                   </span>
                 </div>
               </>

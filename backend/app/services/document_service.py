@@ -1,19 +1,25 @@
 """
-Document ingestion pipeline.
+Document service — three distinct responsibilities:
 
-Flow when a user uploads a PDF:
-1. Save raw PDF to Supabase Storage.
-2. Insert a row in `documents` with status='processing'.
-3. Extract text page by page.
-4. Split into overlapping chunks.
-5. Embed each chunk.
-6. Insert all chunks into `document_chunks` with embeddings.
-7. Update document status to 'ready' and set chunk_count.
+  create_document_record()   Inserts the `documents` row with
+                              status='processing' and returns it. Called
+                              synchronously inside the upload request handler.
 
-If anything fails, the document status is set to 'error'.
+  enqueue_document()         Inserts the `ingestion_jobs` row so the
+                              separate worker process picks it up. Called
+                              right after create_document_record().
+
+  process_from_storage()     The actual ingestion pipeline. Called by the
+                              worker; it receives the raw PDF bytes already
+                              downloaded from storage and runs:
+                              extract → chunk → embed → insert → mark ready.
+
+  delete_document()          Removes a document, its chunks, its storage
+                              object, and invalidates any sessions that
+                              cited it.
 """
+import os
 import uuid
-from typing import Optional
 
 from app.core.config import settings
 from app.db.supabase_client import get_supabase_admin
@@ -21,32 +27,26 @@ from app.services.pdf_service import extract_pages
 from app.services.chunking_service import chunk_document
 from app.services.embedding_service import embed_texts
 
+CHUNK_INSERT_BATCH = 50
 
-async def ingest_document(
-    file_bytes: bytes,
+
+# ── Upload path (called from the request handler) ──────────────────────────
+
+def create_document_record(
     filename: str,
     document_type: str,
     revision: str,
     aircraft_type: str,
     organization_id: str,
     uploader_id: str,
+    storage_path: str,
 ) -> dict:
+    """
+    Insert the documents row and return it.
+    storage_path must already be confirmed uploaded before calling this.
+    """
     supabase = get_supabase_admin()
-
-    # 1. Upload to storage
-    storage_path = f"{organization_id}/{uuid.uuid4()}_{filename}"
-    try:
-        supabase.storage.from_(settings.STORAGE_BUCKET).upload(
-            path=storage_path,
-            file=file_bytes,
-            file_options={"content-type": "application/pdf"},
-        )
-    except Exception as e:
-        # If bucket doesn't exist or upload fails, raise so the route can return 500
-        raise RuntimeError(f"Storage upload failed: {e}")
-
-    # 2. Insert document row
-    doc_payload = {
+    res = supabase.table("documents").insert({
         "name": filename,
         "filename": filename,
         "document_type": document_type,
@@ -55,91 +55,104 @@ async def ingest_document(
         "storage_path": storage_path,
         "status": "processing",
         "organization_id": organization_id,
-        "uploaded_by": uploader_id,
-    }
-    res = supabase.table("documents").insert(doc_payload).execute()
+        "uploader_id": uploader_id,
+    }).execute()
     if not res.data:
         raise RuntimeError("Failed to insert document row")
-    document = res.data[0]
-    doc_id = document["id"]
+    return res.data[0]
 
-    try:
-        # 3. Extract pages
-        pages = extract_pages(file_bytes)
 
-        # 4. Chunk
-        chunks = chunk_document(pages)
+def enqueue_document(doc_id: str, organization_id: str) -> dict:
+    """
+    Create an ingestion_jobs row so the worker picks up the extraction
+    pipeline. Returns the job row.
+    """
+    supabase = get_supabase_admin()
+    res = supabase.table("ingestion_jobs").insert({
+        "document_id": doc_id,
+        "organization_id": organization_id,
+        "status": "pending",
+    }).execute()
+    if not res.data:
+        raise RuntimeError("Failed to create ingestion job")
+    return res.data[0]
 
-        if not chunks:
-            supabase.table("documents").update({
-                "status": "error",
-                "error_message": "No extractable text in PDF",
-            }).eq("id", doc_id).execute()
-            document["status"] = "error"
-            return document
 
-        # 5. Embed
-        texts = [c["content"] for c in chunks]
-        vectors = embed_texts(texts)
+# ── Worker path (called from worker.py) ────────────────────────────────────
 
-        # 6. Insert chunks (in batches to avoid huge payloads)
-        BATCH = 50
-        for i in range(0, len(chunks), BATCH):
-            batch_chunks = chunks[i:i + BATCH]
-            batch_vectors = vectors[i:i + BATCH]
-            rows = []
-            for c, v in zip(batch_chunks, batch_vectors):
-                rows.append({
-                    "document_id": doc_id,
-                    "organization_id": organization_id,
-                    "content": c["content"],
-                    "page_start": c.get("page_start"),
-                    "page_end": c.get("page_end"),
-                    "position": c.get("position"),
-                    "embedding": v,
-                })
-            supabase.table("document_chunks").insert(rows).execute()
+def process_from_storage(
+    doc_id: str,
+    file_bytes: bytes,
+    organization_id: str,
+) -> None:
+    """
+    Run the full ingestion pipeline on raw PDF bytes that the worker
+    already downloaded from Supabase Storage.
 
-        # 7. Mark ready
-        supabase.table("documents").update({
-            "status": "ready",
-            "chunk_count": len(chunks),
-        }).eq("id", doc_id).execute()
+    On success: document.status = 'ready', document.chunk_count = N
+    On failure: raises — the worker is responsible for marking the job/
+                document as error.
+    """
+    supabase = get_supabase_admin()
 
-        document["status"] = "ready"
-        document["chunk_count"] = len(chunks)
-        return document
+    # 0. Idempotency: clear any chunks left behind by a previous failed or
+    #    partial run of this same document, so a retry never duplicates rows.
+    supabase.table("document_chunks").delete().eq("document_id", doc_id).execute()
 
-    except Exception as e:
-        supabase.table("documents").update({
-            "status": "error",
-            "error_message": str(e)[:500],
-        }).eq("id", doc_id).execute()
-        document["status"] = "error"
-        return document
+    # 1. Extract text page by page, then release the big buffer.
+    pages = extract_pages(file_bytes)
+    del file_bytes
 
+    # 2. Chunk
+    chunks = chunk_document(pages)
+    if not chunks:
+        raise RuntimeError("No extractable text in PDF")
+
+    # 3. Embed + insert in batches to cap peak memory on large documents.
+    total = 0
+    for i in range(0, len(chunks), CHUNK_INSERT_BATCH):
+        batch = chunks[i:i + CHUNK_INSERT_BATCH]
+        vectors = embed_texts([c["content"] for c in batch])
+        rows = [{
+            "document_id": doc_id,
+            "organization_id": organization_id,
+            "content": c["content"],
+            "page_start": c.get("page_start"),
+            "page_end": c.get("page_end"),
+            "position": c.get("position"),
+            "embedding": v,
+        } for c, v in zip(batch, vectors)]
+        supabase.table("document_chunks").insert(rows).execute()
+        total += len(rows)
+
+    # 4. Mark ready
+    supabase.table("documents").update({
+        "status": "ready",
+        "chunk_count": total,
+    }).eq("id", doc_id).execute()
+
+
+# ── Delete path ─────────────────────────────────────────────────────────────
 
 def delete_document(doc_id: str, organization_id: str) -> None:
     supabase = get_supabase_admin()
 
-    # Look up storage path & affected sessions before deleting
-    doc = supabase.table("documents").select("*").eq("id", doc_id).eq("organization_id", organization_id).single().execute()
+    doc = supabase.table("documents").select("*").eq(
+        "id", doc_id
+    ).eq("organization_id", organization_id).single().execute()
     if not doc.data:
         return
 
     storage_path = doc.data.get("storage_path")
 
-    # Mark sessions that referenced any chunk of this document with invalidation metadata
+    # Identify sessions that referenced this document via citations.
     chunks = supabase.table("document_chunks").select("id").eq("document_id", doc_id).execute()
-    chunk_ids = [c["id"] for c in (chunks.data or [])]
+    chunk_ids = {c["id"] for c in (chunks.data or [])}
     if chunk_ids:
-        # Find sessions whose messages cite these chunks
-        # session_invalidations table records (session_id, document_name, revision, message)
         msgs = supabase.table("session_messages").select("session_id, citations").execute()
         affected_sessions = set()
         for m in (msgs.data or []):
-            cits = m.get("citations") or []
-            for c in cits:
+            for c in (m.get("citations") or []):
                 if c.get("chunk_id") in chunk_ids:
                     affected_sessions.add(m["session_id"])
                     break
@@ -148,14 +161,20 @@ def delete_document(doc_id: str, organization_id: str) -> None:
                 "session_id": sid,
                 "document_name": doc.data.get("name"),
                 "revision": doc.data.get("revision"),
-                "message": "This document was removed or replaced. Information from earlier in this session may no longer be current.",
+                "message": (
+                    "This document was removed or replaced. "
+                    "Information from earlier in this session may no longer be current."
+                ),
             }).execute()
 
-    # Delete chunks then document
+    # Delete any pending/processing jobs for this document.
+    supabase.table("ingestion_jobs").delete().eq("document_id", doc_id).execute()
+
+    # Delete chunks then the document row.
     supabase.table("document_chunks").delete().eq("document_id", doc_id).execute()
     supabase.table("documents").delete().eq("id", doc_id).execute()
 
-    # Delete from storage
+    # Best-effort storage cleanup.
     if storage_path:
         try:
             supabase.storage.from_(settings.STORAGE_BUCKET).remove([storage_path])

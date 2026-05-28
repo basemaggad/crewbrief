@@ -78,53 +78,15 @@ export default function ChatPage() {
     try {
       const sid = await ensureSession();
 
-      // Try streaming first, fall back to regular
-      let usedStream = false;
-      try {
-        const res = await api.query.stream(sid, q);
-        if (res.ok && res.headers.get('content-type')?.includes('text/event-stream')) {
-          usedStream = true;
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          abortRef.current = reader;
-
-          let buffer = '';
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop();
-            for (const line of lines) {
-              if (!line.startsWith('data:')) continue;
-              const raw = line.slice(5).trim();
-              if (raw === '[DONE]') break;
-              try {
-                const chunk = JSON.parse(raw);
-                setMessages(prev => prev.map(m =>
-                  m.id === assistantMsg.id
-                    ? {
-                        ...m,
-                        content: chunk.content !== undefined ? chunk.content : m.content + (chunk.delta || ''),
-                        citations: chunk.citations || m.citations,
-                        streaming: !chunk.done,
-                      }
-                    : m
-                ));
-              } catch (_) {}
-            }
-          }
-        }
-      } catch (_) {}
-
-      if (!usedStream) {
-        const data = await api.query.ask(sid, q);
-        setMessages(prev => prev.map(m =>
-          m.id === assistantMsg.id
-            ? { ...m, content: data.answer, citations: data.citations || [], streaming: false }
-            : m
-        ));
-      }
+      // No /query/stream endpoint exists on the backend — call the
+      // standard endpoint directly. (Previously this tried streaming
+      // first and 404'd on every message before falling back.)
+      const data = await api.query.ask(sid, q);
+      setMessages(prev => prev.map(m =>
+        m.id === assistantMsg.id
+          ? { ...m, content: data.answer, citations: data.citations || [], streaming: false }
+          : m
+      ));
 
     } catch (err) {
       setMessages(prev => prev.map(m =>

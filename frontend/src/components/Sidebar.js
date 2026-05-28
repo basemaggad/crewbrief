@@ -29,7 +29,9 @@ export default function Sidebar({ collapsed, onToggle }) {
 
   useEffect(() => {
     loadSessions();
-  }, []);
+    // Re-fetch when the route changes so a session created from the
+    // chat page (first message on the empty state) shows up here.
+  }, [location.pathname]);
 
   async function loadSessions() {
     try {
