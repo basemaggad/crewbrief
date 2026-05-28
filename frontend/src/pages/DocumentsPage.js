@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 
 const Icon = ({ d, size = 16, color = 'currentColor' }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
@@ -31,9 +32,12 @@ export default function DocumentsPage() {
   const [uploadForm, setUploadForm] = useState({ type: 'fcom', revision: '', aircraft_type: 'A320' });
   const [toast, setToast] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
-  const fileRef = useRef(null);
+ const fileRef = useRef(null);
+const { loading: authLoading } = useAuth();
 
-  useEffect(() => { loadDocs(); }, []);
+ useEffect(() => {
+  if (!authLoading) loadDocs();
+}, [authLoading]);
 
   async function loadDocs() {
     setLoading(true);
