@@ -14,13 +14,13 @@ app = FastAPI(
 )
 
 # CORS — allows the Vercel frontend to call this Railway backend.
-allowed_origins = [settings.FRONTEND_ORIGIN] if settings.FRONTEND_ORIGIN else ["*"]
-print(f"[CORS DEBUG] allowed_origins = {allowed_origins!r}")
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins + ["http://localhost:3000"],
-    allow_credentials=True,
+    allow_origins=[
+        "https://crewbrief-six.vercel.app",
+        "http://localhost:3000",
+    ],
+    allow_credentials=False,   # Bearer token auth — cookies not used
     allow_methods=["*"],
     allow_headers=["*"],
 )
