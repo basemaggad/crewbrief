@@ -12,13 +12,20 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str
     SUPABASE_JWT_SECRET: str
 
-    # Anthropic
+    # Anthropic (answer generation only — Claude has no embedding endpoint)
     ANTHROPIC_API_KEY: str
     CLAUDE_MODEL: str = "claude-sonnet-4-20250514"
-    # NOTE: embeddings currently use a deterministic local placeholder
-    # (embedding_service.py), so this value is unused until a real
-    # embedding provider is wired in. Kept for forward-compatibility.
-    EMBEDDING_MODEL: str = "claude-3-haiku-20240307"
+
+    # Embedding provider — Google Cloud (Gemini Enterprise Agent Platform)
+    # Auth: set GOOGLE_APPLICATION_CREDENTIALS to the service-account JSON path
+    # (read automatically by the Google SDK; not declared as a field here).
+    GOOGLE_CLOUD_PROJECT: str
+    GOOGLE_CLOUD_LOCATION: str = "us-central1"
+    EMBEDDING_MODEL: str = "gemini-embedding-001"
+    # Output vector size. MUST match the Supabase document_chunks.embedding
+    # vector(N) column. Kept <= 2000 so pgvector HNSW/IVFFlat can index it
+    # (the model's 3072 default cannot be indexed).
+    EMBEDDING_DIM: int = 768
 
     # CORS
     FRONTEND_ORIGIN: str = ""
