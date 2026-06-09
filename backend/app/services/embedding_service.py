@@ -10,30 +10,34 @@ stable functions below and never references a vendor:
     cosine_similarity(a, b) -> float            # in-memory fallback ranking
 
 Current provider: Google Cloud — Gemini Enterprise Agent Platform
-(formerly Vertex AI), model `gemini-embedding-001`. Google does not use
-customer data to train its foundation models by default.
+(formerly Vertex AI), model `gemini-embedding-001`, accessed through the
+Google Gen AI SDK (`google-genai`). Google does not use customer data to
+train its foundation models by default.
+
+SDK note (2026-06): the legacy `vertexai.language_models` SDK is removed by
+Google after 2026-06-24. This adapter uses the replacement Google Gen AI
+SDK (`from google import genai`) with `vertexai=True`, which targets the
+same gemini-embedding-001 model on the same aiplatform.googleapis.com
+endpoint. Auth is unchanged (Application Default Credentials via the
+GOOGLE_APPLICATION_CREDENTIALS service-account JSON).
 
 TO SWAP PROVIDERS LATER (Voyage, Cohere, self-hosted, ...):
   - Reimplement _embed_batch() against the new provider.
   - Keep the function signatures and EMBEDDING_DIM contract identical.
   - Update EMBEDDING_DIM + the Supabase vector() column dimension to match,
     then re-embed the library. Nothing else in the codebase changes.
-
-VERIFY BEFORE DEPLOY: the platform was rebranded recently. Confirm the
-import path and method names below against the current Google Cloud
-"Get text embeddings" documentation; the SDK surface is the most likely
-thing to have shifted.
 """
 from typing import List
 import math
 
 from app.core.config import settings
 
-# --- Provider SDK (Google Cloud / Gemini Enterprise Agent Platform) ----------
+# --- Provider SDK (Google Gen AI SDK -> Gemini Enterprise Agent Platform) -----
 # Auth comes from the service-account JSON pointed to by the
-# GOOGLE_APPLICATION_CREDENTIALS environment variable, plus project/location.
-import vertexai
-from vertexai.language_models import TextEmbeddingModel, TextEmbeddingInput
+# GOOGLE_APPLICATION_CREDENTIALS environment variable (Application Default
+# Credentials), plus project/location passed to the client below.
+from google import genai
+from google.genai.types import EmbedContentConfig
 
 # Output vector size. MUST equal the Supabase `document_chunks.embedding`
 # vector(N) column. 768 chosen to stay within pgvector's 2000-dim index
@@ -44,19 +48,24 @@ EMBEDDING_DIM = settings.EMBEDDING_DIM  # e.g. 768
 # under that; 100 is a safe, simple default.
 _MAX_BATCH = 100
 
-_model: TextEmbeddingModel | None = None
+_client: "genai.Client | None" = None
 
 
-def _get_model() -> TextEmbeddingModel:
-    """Lazily initialise the Vertex client and load the embedding model once."""
-    global _model
-    if _model is None:
-        vertexai.init(
+def _get_client() -> "genai.Client":
+    """Lazily initialise the Google Gen AI client once.
+
+    vertexai=True routes calls to the Gemini Enterprise Agent Platform
+    (aiplatform.googleapis.com) using the project/location and the
+    service-account credentials from GOOGLE_APPLICATION_CREDENTIALS.
+    """
+    global _client
+    if _client is None:
+        _client = genai.Client(
+            vertexai=True,
             project=settings.GOOGLE_CLOUD_PROJECT,
             location=settings.GOOGLE_CLOUD_LOCATION,
         )
-        _model = TextEmbeddingModel.from_pretrained(settings.EMBEDDING_MODEL)
-    return _model
+    return _client
 
 
 def _embed_batch(texts: List[str], task_type: str) -> List[List[float]]:
@@ -67,10 +76,17 @@ def _embed_batch(texts: List[str], task_type: str) -> List[List[float]]:
       - 'RETRIEVAL_QUERY'    for user questions
     Matching query/document task types improves retrieval accuracy.
     """
-    model = _get_model()
-    inputs = [TextEmbeddingInput(text=t, task_type=task_type) for t in texts]
-    results = model.get_embeddings(inputs, output_dimensionality=EMBEDDING_DIM)
-    return [r.values for r in results]
+    client = _get_client()
+    response = client.models.embed_content(
+        model=settings.EMBEDDING_MODEL,
+        contents=texts,
+        config=EmbedContentConfig(
+            task_type=task_type,
+            output_dimensionality=EMBEDDING_DIM,
+        ),
+    )
+    # response.embeddings preserves input order; each item has .values
+    return [e.values for e in response.embeddings]
 
 
 def embed_texts(texts: List[str]) -> List[List[float]]:
