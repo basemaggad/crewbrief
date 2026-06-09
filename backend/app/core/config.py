@@ -12,14 +12,16 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str
     SUPABASE_JWT_SECRET: str
 
-    # Anthropic (answer generation only — Claude has no embedding endpoint)
+    # Anthropic (answer generation + vision summarization)
     ANTHROPIC_API_KEY: str
     CLAUDE_MODEL: str = "claude-sonnet-4-20250514"
 
     # Embedding provider — Google Cloud (Gemini Enterprise Agent Platform)
     # Auth: set GOOGLE_APPLICATION_CREDENTIALS to the service-account JSON path
     # (read automatically by the Google SDK; not declared as a field here).
-    GOOGLE_CLOUD_PROJECT: str
+    # Empty string disables the provider at startup; a missing value would
+    # previously crash the app on import — this default prevents that.
+    GOOGLE_CLOUD_PROJECT: str = ""
     GOOGLE_CLOUD_LOCATION: str = "us-central1"
     EMBEDDING_MODEL: str = "gemini-embedding-001"
     # Output vector size. MUST match the Supabase document_chunks.embedding
