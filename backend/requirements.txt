@@ -14,10 +14,9 @@ cryptography==43.0.3
 pdfplumber==0.11.9
 PyMuPDF==1.27.2.3
 
-# Embedding provider — Google Cloud Gemini Enterprise Agent Platform
-# Uses the Google Gen AI SDK (google-genai). The legacy google-cloud-aiplatform
-# `vertexai.language_models` SDK is removed by Google after 2026-06-24; this is
-# its supported replacement (same model, same aiplatform.googleapis.com endpoint).
+# Embedding provider — SELF-HOSTED (no third party, no API key).
+# fastembed runs the embedding model locally via ONNX (CPU, no PyTorch).
+# Model: nomic-ai/nomic-embed-text-v1.5-Q (768-dim, Apache-2.0).
 # Pinned to the current stable release (verified 2026-06-09).
-# Re-pin when upgrading by checking https://pypi.org/project/google-genai/
-google-genai==2.8.0
+# Re-pin when upgrading by checking https://pypi.org/project/fastembed/
+fastembed==0.8.0

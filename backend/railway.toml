@@ -1,5 +1,9 @@
 [build]
 builder = "NIXPACKS"
+# Bake the self-hosted embedding model into the image so it is not
+# re-downloaded on every deploy. Runs after pip install; Nixpacks copies the
+# resulting <backend>/.fastembed_cache into the runtime image.
+buildCommand = "python scripts/predownload_model.py"
 
 [deploy]
 startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT"
