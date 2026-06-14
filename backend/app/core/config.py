@@ -25,13 +25,9 @@ class Settings(BaseSettings):
     CLAUDE_MODEL: str = "claude-sonnet-4-20250514"
 
     # Embedding provider — self-hosted via fastembed (ONNX, runs locally).
-    # No credentials. The model files are cached on disk (baked into the
-    # Railway image at build time by scripts/predownload_model.py).
-    EMBEDDING_MODEL: str = "nomic-ai/nomic-embed-text-v1.5-Q"
-    # Output vector size. MUST match the Supabase document_chunks.embedding
-    # vector(N) column. nomic-embed-text-v1.5 outputs 768 by default, within
-    # pgvector's 2000-dim HNSW/IVFFlat index limit.
-    EMBEDDING_DIM: int = 768
+    # No credentials, no settings: the model name + dimension are hard-coded
+    # in embedding_service.py (EMBEDDING_MODEL / EMBEDDING_DIM) so a stray
+    # deploy variable cannot override the provider. Nothing to configure here.
 
     # CORS
     FRONTEND_ORIGIN: str = ""

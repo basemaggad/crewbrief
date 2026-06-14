@@ -20,6 +20,11 @@ Why this model: 768-dim matches the Supabase document_chunks.embedding
 vector(768) column and pgvector index exactly; 8192-token context comfortably
 covers our chunk sizes; quantized build is ~130 MB (light on Railway disk/RAM).
 
+The model name and dimension are HARD-CODED below (not read from env) on
+purpose: they are a code-level property of this adapter, not a deploy-time
+toggle. This prevents a stray EMBEDDING_MODEL/EMBEDDING_DIM environment
+variable from silently overriding the provider.
+
 nomic requires task-instruction prefixes. fastembed applies them for us:
   - passage_embed()  -> prepends "search_document:"  (stored chunks)
   - query_embed()    -> prepends "search_query:"     (user questions)
@@ -28,21 +33,25 @@ Matching document/query prefixes is what makes retrieval accurate.
 TO SWAP PROVIDERS LATER (Voyage, Cohere, Google, ...):
   - Reimplement _embed_batch() against the new provider.
   - Keep the function signatures and EMBEDDING_DIM contract identical.
-  - Update EMBEDDING_DIM + the Supabase vector() column dimension to match,
-    then re-embed the library. Nothing else in the codebase changes.
+  - Update EMBEDDING_MODEL / EMBEDDING_DIM below + the Supabase vector()
+    column dimension to match, then re-embed the library. Nothing else
+    in the codebase changes.
 """
 from typing import List
 import os
 
-from app.core.config import settings
-
 # Self-hosted embedding model (ONNX via fastembed; no network, no credentials).
 from fastembed import TextEmbedding
 
+# Provider identity — fixed in code (see module docstring). Changing the model
+# here is the single-file provider swap; do NOT source these from env, so a
+# stale deploy variable can never point the pipeline at the wrong model.
+EMBEDDING_MODEL = "nomic-ai/nomic-embed-text-v1.5-Q"
+
 # Output vector size. MUST equal the Supabase `document_chunks.embedding`
-# vector(N) column. nomic-embed-text-v1.5 outputs 768 by default, which stays
-# within pgvector's 2000-dim HNSW/IVFFlat index limit.
-EMBEDDING_DIM = settings.EMBEDDING_DIM  # 768
+# vector(N) column. nomic-embed-text-v1.5 outputs 768 by default, within
+# pgvector's 2000-dim HNSW/IVFFlat index limit.
+EMBEDDING_DIM = 768
 
 # Model files cache. Derived from this file's location so the build-time
 # pre-download (scripts/predownload_model.py) and the runtime both resolve to
@@ -64,7 +73,7 @@ def _get_model() -> "TextEmbedding":
     """
     global _model
     if _model is None:
-        _model = TextEmbedding(model_name=settings.EMBEDDING_MODEL, cache_dir=_CACHE_DIR)
+        _model = TextEmbedding(model_name=EMBEDDING_MODEL, cache_dir=_CACHE_DIR)
     return _model
 
 

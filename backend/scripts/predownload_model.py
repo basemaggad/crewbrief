@@ -12,12 +12,15 @@ and runtime always agree on the path.
 
 Kept dependency-light on purpose: it imports only fastembed + os, NOT the app
 config, so it runs during the build even if app env vars aren't present yet.
+
+MODEL is hard-coded to match embedding_service.EMBEDDING_MODEL and is NOT read
+from env, so a stray EMBEDDING_MODEL deploy variable cannot break the build.
 """
 import os
 
 from fastembed import TextEmbedding
 
-MODEL = os.environ.get("EMBEDDING_MODEL", "nomic-ai/nomic-embed-text-v1.5-Q")
+MODEL = "nomic-ai/nomic-embed-text-v1.5-Q"
 
 _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE_DIR = os.environ.get("FASTEMBED_CACHE_DIR", os.path.join(_BACKEND_DIR, ".fastembed_cache"))
