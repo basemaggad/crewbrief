@@ -1,0 +1,19 @@
+# Railway config for the WORKER service (ingestion queue poller).
+# Point the worker service at this file:
+#   Railway → worker service → Settings → Config-as-code / Config file path
+#   → /backend/railway.worker.toml
+#
+# The API service keeps using /backend/railway.toml (startCommand = uvicorn).
+# Each service needs its own start command; a shared config file would make
+# both run the same process.
+
+[build]
+builder = "NIXPACKS"
+# Same as the API: bake the self-hosted embedding model into the image so the
+# worker can embed without re-downloading on every deploy.
+buildCommand = "python scripts/predownload_model.py"
+
+[deploy]
+startCommand = "python worker.py"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
